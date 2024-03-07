@@ -1,10 +1,23 @@
 
 #include <daqhats/daqhats.h>
 
+#include "wav.h"
+
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
+
+static int run = 1;
+
+
+
+// TODO install sigint handler to exit loop and close file gracefully.
+void handle_sigint(int signal)
+{
+	run = 0;
+}
 
 int check_hardware(uint8_t address)
 {
@@ -67,6 +80,10 @@ int main(int argc, char *argv[])
 	int rv;
 	int address = 0; // Could make this an input arg.
 	int channel = 0; // Count make this an input arg.
+	int data_rate = 10240; // Samples per second.
+
+	signal(SIGINT, handle_sigint);
+	signal(SIGTERM, handle_sigint);
 
 	rv = check_hardware(address);
 	if (rv != 0)
@@ -137,7 +154,7 @@ int main(int argc, char *argv[])
 	printf("Slope: %f\nOffset: %f\n", slope, offset);
 
 	uint8_t ch_mask = 1 << channel;
-	rv = mcc128_a_in_scan_start(address, ch_mask, 4096, 1024, OPTS_CONTINUOUS);
+	rv = mcc128_a_in_scan_start(address, ch_mask, 4096, data_rate, OPTS_CONTINUOUS);
 	if (rv != RESULT_SUCCESS)
 	{
 		fprintf(stderr, "Couldn't start scan.\n");
@@ -154,16 +171,16 @@ int main(int argc, char *argv[])
 	}
 	printf("Buffer size: %d\n", bs);
 
-	uint16_t st;
+	uint16_t status;
 	uint32_t samp;
-	rv = mcc128_a_in_scan_status(address, &st, &samp);
+	rv = mcc128_a_in_scan_status(address, &status, &samp);
 	if (rv != RESULT_SUCCESS)
 	{
 		fprintf(stderr, "Couldn't read scan status\n");
 		return rv;
 	}
-	printf("Scan status:\n\tStatus: %d\n\tSamples: %d\n", st, samp);
-	if (st != STATUS_RUNNING)
+	printf("Scan status:\n\tStatus: %d\n\tSamples: %d\n", status, samp);
+	if (status != STATUS_RUNNING)
 	{
 		fprintf(stderr, "Not all is well in the buffer\n");
 		// TODO: handle hardware and buffer overruns
@@ -171,8 +188,44 @@ int main(int argc, char *argv[])
 	}
 	// TODO: check number samples available and read them.
 
-	
 
+	double *buffer = malloc(data_rate * sizeof(double));
+	uint32_t actual;
+
+	while (run)
+	{
+		rv = mcc128_a_in_scan_read(address, &status, data_rate, 0.1, buffer, data_rate, &actual);
+		if (rv != RESULT_SUCCESS)
+		{
+			fprintf(stderr, "read failed: resource unavailable.\n");
+			return rv;
+		}
+		if (status != STATUS_RUNNING)
+		{
+			if (status == STATUS_HW_OVERRUN)
+			{
+				fprintf(stderr, "hardware overrun aughghghg\n");
+				return status;
+			}
+			if (status == STATUS_BUFFER_OVERRUN)
+			{
+				fprintf(stderr, "buffer overrun askasdjf\n");
+				return status;
+			}
+		}
+		
+		printf("read %d samples. Here's a few of them:\n\t%f %f %f %f\n\n", actual,
+			buffer[0], buffer[256], buffer[512], buffer[1023]);
+	}
+	printf("Job stopped. Closing up.\n");
+
+	rv = mcc128_a_in_scan_stop(address);
+	if (rv != RESULT_SUCCESS)
+	{
+		printf("Failed to stop the scan!\n");
+		return rv;
+	}
+		 
 	rv = mcc128_close(0);
 	if (rv != RESULT_SUCCESS)
 	{
