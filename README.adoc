@@ -1,0 +1,44 @@
+= NTST Logger
+
+This program is designed to record data from a geobuoy via a
+MCC 128 DAQ to the storage device on a Raspberry Pi running
+Raspbian (Debian 11, "Bullseye").
+
+== DAQ
+
+The DAQ is the only board installed on the Pi.
+
+To get its address, run
+
+[source, sh]
+----
+$ daqhats_list_boards
+---
+
+(the address is always 0).
+
+This is tested on version:
+
+[source, sh]
+----
+$ daqhats_version
+daqhats version 1.4.0.8 is installed
+---- 
+
+=== DAQ Hardware Configuration
+
+The coaxial cable is wired to channel 0 in and ground (AGND).
+
+See xref:file:///home/tiuser/daqhats/docs/overview.html#mcc-118[here].
+
+=== DAQ Settings
+
+ . What is min/max voltage expected? (10/5/2/1)
+ . What ADC coefficients should be used?
+   . slope?
+   . offset?
+ . What input mode should be used?
+   . single-ended vs differential?
+ . What is trigger mode?
+
+
