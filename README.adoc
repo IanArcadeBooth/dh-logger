@@ -25,6 +25,10 @@ $ daqhats_version
 daqhats version 1.4.0.8 is installed
 ---- 
 
+=== DAQ Documentation.
+
+See xref:https://mccdaq.github.io/daqhats/index.html[online].
+
 === DAQ Hardware Configuration
 
 The coaxial cable is wired to channel 0 in and ground (AGND).
@@ -41,4 +45,6 @@ See xref:file:///home/tiuser/daqhats/docs/overview.html#mcc-118[here].
    . single-ended vs differential?
  . What is trigger mode?
 
+== WAV
 
+The logger writes to WAV files.
