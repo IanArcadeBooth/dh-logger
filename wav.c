@@ -9,28 +9,50 @@ int write_header(FILE *fp, uint32_t size)
 	fprintf(fp, "WAVE");
 }
 
-int write_fmt(FILE *fp, uint16_t nch, uint32_t rate)
+int write_fmt(FILE *fp, wav_format fmt, uint16_t nch, uint32_t rate)
 {
-	uint32_t size = 16;
-	uint16_t format = 0x0001; // PCM
+	uint32_t size;
 	uint32_t bps = 2*rate; // only for 16 bit uncompressed.	
 	uint16_t block_align = 2;
-	uint16_t bit_depth = 16;
-	uint16_t cb_size = 0;
+
+	uint16_t bit_depth;
+      	if (fmt == WAV_FORMAT_PCM)
+	{
+		size = 16;
+		bit_depth = 16;	
+	}
+	else if (fmt == WAV_FORMAT_IEE_FLOAT)
+	{
+		size = 18;
+		bit_depth = 64;
+	}
 	
 	fprintf(fp, "fmt ");
 	fwrite(&size, 4, 1, fp);
-	fwrite(&format, 2, 1, fp);
+	fwrite(&fmt, 2, 1, fp);
 	fwrite(&nch, 2, 1, fp);
 	fwrite(&rate, 4, 1, fp);
 	fwrite(&bps, 4, 1, fp);
 	fwrite(&block_align, 2, 1, fp);//TBD
 	fwrite(&bit_depth, 2, 1, fp);
+	if (fmt == WAV_FORMAT_IEE_FLOAT)
+	{
+		uint16_t cb_size = 0;
+		fwrite(&cb_size, 2, 1, fp);
+	}
+}
+
+int write_fact(FILE *fp, uint32_t n)
+{
+	uint32_t sz = 4;
+	fprintf(fp, "fact");
+	fwrite(&sz, 4, 1, fp);
+	fwrite(&n, 4, 1, fp);
 }
 
 int write_data(FILE *fp, uint32_t size)
 {
-	fprintf(fp, "DATA");
+	fprintf(fp, "data");
 	fwrite(&size, 4, 1, fp);
 }
 
