@@ -390,6 +390,11 @@ static void record(daq_info_t const cfg, config_t const ini, float duration)
 	// Record data.
 	while (run && (i < iterations))
 	{
+		if ((i % 5) == 0)
+		{
+			mcc128_blink_led(cfg.address, 3);
+		}
+
 		rv = mcc128_a_in_scan_read(cfg.address, &status, cfg.sample_rate, 2.0, buffer, buf_count*sizeof(double), &actual);
 		if (rv != RESULT_SUCCESS)
 		{
@@ -436,7 +441,6 @@ static void record(daq_info_t const cfg, config_t const ini, float duration)
 			fprintf(stderr, "Invalid recording format\n");
 			exit(1);
 		}
-		printf("recorded %d samples.\n", actual);
 		i++;
 	}
 
@@ -586,6 +590,7 @@ int main(int argc, char *argv[])
 		record(cfg, ini, 60.0);
 	}
 
+	printf("stopping the service\n");
 	rv = mcc128_a_in_scan_stop(ini.address);
 	if (rv != RESULT_SUCCESS)
 	{
