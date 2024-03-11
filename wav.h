@@ -5,12 +5,6 @@
 #include <stdint.h>
 #include <stdio.h>
 
-
-typedef enum wf {
-	WAV_FORMAT_PCM = 0x0001,
-	WAV_FORMAT_IEEE_FLOAT = 0x0003
-} wav_format;
-
 /*
  * Write the RIFF header.
  */
@@ -20,7 +14,7 @@ int write_header(FILE *fp, uint32_t size);
  * Write the FMT chunk, which tells the reader the format of the
  * data to follow.
  */
-int write_fmt(FILE *fp, wav_format fmt, uint16_t nch, uint32_t rate);
+int write_fmt(FILE *fp, uint16_t nch, uint32_t rate);
 
 /*
  * Write fact chunk.

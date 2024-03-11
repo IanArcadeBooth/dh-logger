@@ -20,7 +20,7 @@ static int run = 1;
 
 uint32_t buf_count = 0;
 double *buffer;	// Local store for samples.
-char *wbuf;  // Local store for 32 bit float samples
+float *wbuf;  // Local store for 32 bit float samples
 
 // TODO install sigint handler to exit loop and close file gracefully.
 void handle_sigint(int signal)
@@ -35,7 +35,6 @@ typedef struct config_s
 	uint8_t range;
 	uint8_t mode;
 	uint32_t sample_rate;
-	uint16_t format;
 	uint16_t file_duration;
 	char file_postfix[32];
 } config_t;
@@ -277,18 +276,6 @@ static int parse_mode(char const* value)
 	}
 }
 
-static int parse_format(char const* value)
-{
-	if (strncasecmp("PCM", value, 3) == 0) {
-		return WAV_FORMAT_PCM;
-	} else if (strncasecmp("FLOAT", value, 5) == 0) {
-		return WAV_FORMAT_IEEE_FLOAT;
-	} else {
-		fprintf(stderr, "invalid format: \"%s\"\n", value);
-		exit(1);
-	}
-}
-
 /*
  * Returns the channels to record.
  *
@@ -367,35 +354,23 @@ static void record(daq_info_t const cfg, config_t const ini)
 	int32_t iterations = ceil(ini.file_duration);
 	int32_t actual;
 
+	int nch = ch_count(cfg.channels);
+
 	// Write the header and FMT chunk.
 	write_header(fp, 100);
-	write_fmt(fp, ini.format, ch_count(ini.channels), cfg.sample_rate);
-	uint32_t guess_samples = iterations * cfg.sample_rate;
-	uint32_t guess_bytes;
-	if (ini.format == WAV_FORMAT_IEEE_FLOAT)
-	{
-		write_fact(fp, guess_samples);
-		guess_bytes = guess_samples * 8;
-	}
-	else
-	{
-		guess_bytes = guess_samples * 2;
-	}
+	write_fmt(fp, ch_count(ini.channels), cfg.sample_rate);
+	uint32_t guess_samples = iterations * cfg.sample_rate * nch;
+	uint32_t guess_bytes = guess_samples * sizeof(float);
+	write_fact(fp, guess_samples);
 	write_drdc(fp, cfg, timestr); 
 
 	write_data(fp, guess_bytes);
-	int guess_pos = ftell(fp) - 4;
-
-	int nch = ch_count(cfg.channels);
+	int guess_pos = ftell(fp) - sizeof(float);
+	uint32_t bytes_written = 0;
 
 	// Record data.
 	while (run && (i < iterations))
 	{
-		if ((i % 5) == 0)
-		{
-			mcc128_blink_led(cfg.address, 3);
-		}
-
 		rv = mcc128_a_in_scan_read(cfg.address, &status, cfg.sample_rate, 2.0, buffer, buf_count, &actual);
 		if (rv != RESULT_SUCCESS)
 		{
@@ -420,31 +395,37 @@ static void record(daq_info_t const cfg, config_t const ini)
 			exit(actual -1);
 		}
 
-		if (ini.format == WAV_FORMAT_PCM)
+		double power[8];
+		power[0] = 0.0;
+		power[1] = 0.0;
+		power[2] = 0.0;
+		power[3] = 0.0;
+		power[4] = 0.0;
+		power[5] = 0.0;
+		power[6] = 0.0;
+		power[7] = 0.0;
+
+		for (int j = 0; j < buf_count; j++)
 		{
-			// Convert to 16 bit values.
-			int16_t *p = (int16_t*)wbuf;
-			for (int j = 0; j < buf_count; j++)
-			{
-				p[j] = round(buffer[j] - INT16_MAX);
-			}
-			rv = fwrite(wbuf, sizeof(int16_t), cfg.sample_rate, fp);
+			wbuf[j] = buffer[j] / (float)cfg.range;
+			power[j % nch] += buffer[j]*buffer[j];
 		}
-		else if (ini.format == WAV_FORMAT_IEEE_FLOAT)
+		for (int j = 0; j < nch; j++)
 		{
-			float *p = (float*)wbuf;
-			for (int j = 0; j < buf_count; j++)
-			{
-				p[j] = buffer[j];
-			}
-			rv = fwrite(wbuf, sizeof(float), cfg.sample_rate, fp);
+			printf("ch %d: %f\n", j, power[j]);
 		}
-		else
-		{
-			fprintf(stderr, "Invalid recording format\n");
-			exit(1);
-		}
+		printf("\n");
+		rv = fwrite(wbuf, sizeof(float), cfg.sample_rate * nch, fp);
+		bytes_written += rv * sizeof(float);
 		i++;
+	}
+
+	if (bytes_written != guess_bytes)
+	{
+		printf("Fixing bytes in data:\n");
+		printf("Guess: %d\nActual: %d\n", guess_bytes, bytes_written);
+		fseek(fp, guess_pos, SEEK_SET);
+		fwrite(&bytes_written, sizeof(uint32_t), 1, fp);
 	}
 
 	// Fix any file size issues.
@@ -486,8 +467,6 @@ static int inih_handler(void *user, char const* section, char const* name, char 
 		c->mode = parse_mode(value);
 	} else if (MATCH("mcc128", "sample_rate")) {
 		c->sample_rate = atoi(value);
-	} else if (MATCH("wav", "format")) {
-		c->format = parse_format(value);
 	} else if (MATCH("logger", "file_postfix")) {
 		if (strlen(value) > 31) {
 			fprintf(stderr, "file_postfix too long\n");
@@ -564,15 +543,8 @@ int main(int argc, char *argv[])
 	      	return rv;	
 	}
 
-	buffer = malloc(buf_count * sizeof(double));
-	if (ini.format == WAV_FORMAT_PCM)
-	{
-		wbuf = malloc(buf_count * sizeof(uint16_t));
-	}
-	else
-	{
-		wbuf = malloc(buf_count * sizeof(float));
-	}
+	buffer = (double*)malloc(buf_count * sizeof(double));
+	wbuf = (float*)malloc(buf_count * sizeof(float));
 
 	rv = mcc128_a_in_scan_start(ini.address, ini.channels, actual_rate, actual_rate, OPTS_CONTINUOUS);
 	if (rv != RESULT_SUCCESS)
