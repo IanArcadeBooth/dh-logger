@@ -21,10 +21,10 @@ int write_fmt(FILE *fp, wav_format fmt, uint16_t nch, uint32_t rate)
 		size = 16;
 		bit_depth = 16;	
 	}
-	else if (fmt == WAV_FORMAT_IEE_FLOAT)
+	else if (fmt == WAV_FORMAT_IEEE_FLOAT)
 	{
 		size = 18;
-		bit_depth = 64;
+		bit_depth = 32;
 	}
 	
 	fprintf(fp, "fmt ");
@@ -35,7 +35,7 @@ int write_fmt(FILE *fp, wav_format fmt, uint16_t nch, uint32_t rate)
 	fwrite(&bps, 4, 1, fp);
 	fwrite(&block_align, 2, 1, fp);//TBD
 	fwrite(&bit_depth, 2, 1, fp);
-	if (fmt == WAV_FORMAT_IEE_FLOAT)
+	if (fmt == WAV_FORMAT_IEEE_FLOAT)
 	{
 		uint16_t cb_size = 0;
 		fwrite(&cb_size, 2, 1, fp);

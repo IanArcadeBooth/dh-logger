@@ -8,7 +8,7 @@
 
 typedef enum wf {
 	WAV_FORMAT_PCM = 0x0001,
-	WAV_FORMAT_IEE_FLOAT = 0x0003
+	WAV_FORMAT_IEEE_FLOAT = 0x0003
 } wav_format;
 
 /*

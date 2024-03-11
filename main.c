@@ -11,13 +11,16 @@
 #include <signal.h>
 #include <time.h>
 #include <math.h>
+#include <errno.h>
+#include <ctype.h>
 
 #include <ini.h>
 
 static int run = 1;
 
+uint32_t buf_count = 0;
 double *buffer;	// Local store for samples.
-int16_t *tmp;	// Local store for 16 bit converted samples.
+char *wbuf;  // Local store for 32 bit float samples
 
 // TODO install sigint handler to exit loop and close file gracefully.
 void handle_sigint(int signal)
@@ -28,12 +31,13 @@ void handle_sigint(int signal)
 typedef struct config_s
 {
 	uint8_t address;
-	uint8_t channel;
+	uint8_t channels;
 	uint8_t range;
 	uint8_t mode;
-	uint16_t sample_rate;
+	uint32_t sample_rate;
 	uint16_t format;
 	uint16_t file_duration;
+	char file_postfix[32];
 } config_t;
 
 typedef struct daq_hat_s 
@@ -45,7 +49,7 @@ typedef struct daq_hat_s
 	int8_t ver_maj;
 	int8_t ver_min;
 	uint8_t address;
-	uint8_t channel;
+	uint8_t channels;
 	uint8_t range;
 	char mode[14];
 	char product_name[256];
@@ -57,7 +61,7 @@ typedef struct daq_hat_s
 /*
  * Must open connection to the DAQ before calling this.
  */
-static daq_info_t get_configuration(uint8_t address, uint8_t channel, uint16_t rate)
+static daq_info_t get_configuration(uint8_t address, uint8_t channels, uint16_t rate)
 {
 	int rv;
 	struct HatInfo info;
@@ -77,7 +81,7 @@ static daq_info_t get_configuration(uint8_t address, uint8_t channel, uint16_t r
 
 	daq_info_t cfg;
 	cfg.address = address;
-	cfg.channel = channel;
+	cfg.channels = channels;
 	strcpy(cfg.model, "HAT_ID_MCC_128");
 	cfg.ver_hw = info.version;
 	strcpy(cfg.product_name, info.product_name);
@@ -157,7 +161,13 @@ static void print_configuration(daq_info_t cfg)
 	printf("  Firmware Version: %d.%d\n", cfg.ver_maj, cfg.ver_min);
 	printf("  Serial Number: %s\n", cfg.serial);
 	printf("  Address: %d\n", cfg.address);
-	printf("  Channel: %d\n", cfg.channel);
+	printf("  Channels: ");
+	for (int i = 0; i < 8; i++) {
+		if ((cfg.channels & (1 << i)) != 0) {
+			printf("%d ", i);
+		}
+	}
+	printf("\n");
 	printf("  Mode: %s\n", cfg.mode);
 	printf("  Range: +/- %dV\n", cfg.range);
 	printf("  Sample Rate: %fHz\n", cfg.sample_rate);
@@ -178,7 +188,15 @@ static void serialize_configuration(FILE *fp, daq_info_t const cfg, char const*t
 	fprintf(fp, "<firmware version='%d.%d' />", cfg.ver_maj, cfg.ver_min);
 	fprintf(fp, "<item serial='%s' />", cfg.serial);
 	fprintf(fp, "<address>%d</address>", cfg.address);
-	fprintf(fp, "<channel>%d</channel>", cfg.address);
+	fprintf(fp, "<channels>");
+	int id = 0;
+	for (int i = 0; i < 8; i++) {
+		if ((cfg.channels & (1 << i)) != 0) {
+			fprintf(fp, "<channel id='%d'>%d</channel>", id, i);
+			id++;
+		}
+	}
+	fprintf(fp, "</channels>");
 	fprintf(fp, "<mode>%s</mode>", cfg.mode);
 	fprintf(fp, "<range>+/- %dV</range>", cfg.range);
 	fprintf(fp, "<sample_rate>%fHz</sample_rate>", cfg.sample_rate);
@@ -231,109 +249,6 @@ static int write_drdc(FILE *fp, daq_info_t const cfg, char const*timestr)
 	fseek(fp, fpos, SEEK_SET);
 }
 
-/*
- * Record DAQ samples to WAV file for duration d.
- *
- * Precondition: already scanning on address 0.
- *
- * Tries to read one second's worth of samples. The read times out after 2 seconds.
- * If we don't have the first second's samples by then, then something is wrong and
- * we need to handle the issue.
- */
-static void record(daq_info_t const cfg, config_t const ini, float duration)
-{
-
-	// Determine current time.
-	time_t t;
-       	time(&t);
-    	char timestr[sizeof "1970-01-01T00:00:00Z"];
-    	strftime(timestr, sizeof(timestr), "%FT%TZ", gmtime(&t));
-
-	// Open WAV file for writing.
-	char filename[128];
-	sprintf(filename, "%s-ntst.wav", timestr);
-	FILE *fp = fopen(filename, "w");
-	printf("start file \"%s\"\n", filename);
-
-	int rv;
-	uint16_t status;
-	int32_t i = 0;
-	int32_t iterations = ceil(duration);	// One read per second.
-	int32_t actual;
-
-	// Write the header and FMT chunk.
-	write_header(fp, 100);
-	write_fmt(fp, ini.format, 1, cfg.sample_rate);
-	uint32_t guess_samples = iterations * cfg.sample_rate;
-	uint32_t guess_bytes;
-	if (ini.format == WAV_FORMAT_IEE_FLOAT)
-	{
-		write_fact(fp, guess_samples);
-		guess_bytes = guess_samples * 8;
-	}
-	else
-	{
-		guess_bytes = guess_samples * 2;
-	}
-	write_drdc(fp, cfg, timestr); 
-
-	write_data(fp, guess_bytes);
-	int guess_pos = ftell(fp) - 4;
-
-	// Record data.
-	while (run && (i < iterations))
-	{
-		rv = mcc128_a_in_scan_read(cfg.address, &status, cfg.sample_rate, 2.0, buffer, cfg.sample_rate, &actual);
-		if (rv != RESULT_SUCCESS)
-		{
-			fprintf(stderr, "read failed: resource unavailable.\n");
-		}
-		if (status != STATUS_RUNNING)
-		{
-			if (status & STATUS_HW_OVERRUN)
-			{
-				fprintf(stderr, "hardware overrun aughghghg\n");
-			}
-			if (status & STATUS_BUFFER_OVERRUN)
-			{
-				fprintf(stderr, "buffer overrun askasdjf\n");
-			}
-		}
-		if (actual < cfg.sample_rate)
-		{
-			fprintf(stderr, "somethign wrong with read\n");
-			exit(actual -1);
-		}
-
-		if (ini.format == WAV_FORMAT_PCM)
-		{
-			// Convert to 16 bit values.
-			for (int j = 0; j < cfg.sample_rate; j++)
-			{
-				tmp[j] = round(buffer[j] - INT16_MAX);
-			}
-			rv = fwrite(tmp, sizeof(int16_t), cfg.sample_rate, fp);
-		}
-		else if (ini.format == WAV_FORMAT_IEE_FLOAT)
-		{
-			// We're actually recording doubles.
-			rv = fwrite(buffer, sizeof(double), cfg.sample_rate, fp);
-		}
-		else
-		{
-			fprintf(stderr, "Invalid recording format\n");
-			exit(1);
-		}
-		printf("recorded %d samples.\n", actual);
-		i++;
-	}
-
-	// Fix any file size issues.
-	printf("close file \"%s\"\n", filename);
-	
-	fclose(fp);
-}
-
 static int parse_range(char const* value)
 {
 	if (strncmp("10", value, 2) == 0) {
@@ -367,11 +282,186 @@ static int parse_format(char const* value)
 	if (strncasecmp("PCM", value, 3) == 0) {
 		return WAV_FORMAT_PCM;
 	} else if (strncasecmp("FLOAT", value, 5) == 0) {
-		return WAV_FORMAT_IEE_FLOAT;
+		return WAV_FORMAT_IEEE_FLOAT;
 	} else {
 		fprintf(stderr, "invalid format: \"%s\"\n", value);
 		exit(1);
 	}
+}
+
+/*
+ * Returns the channels to record.
+ *
+ * High bit - record channel
+ * Low bit - don't.
+ */
+static uint8_t parse_channels(char const* value)
+{
+	uint8_t result = 0x00;
+	char *p, *q = strdup(value);
+	p = q;
+	while (*p)
+	{
+		if (isdigit(*p) == 0)
+		{
+			p++;
+			continue;
+		}
+		errno = 0;
+		long value = strtol(p, &p, 10);
+		if (errno != 0)
+		{
+			fprintf(stderr, "channel parse failed\n");
+			exit(1);
+		}
+		if ((value > 7) || (value < 0))
+		{
+			fprintf(stderr, "channel values must be between 0-7\n");
+			exit(1);
+		}
+		result |= (0x01 << value);
+	}
+	free(q);
+	return result;
+}
+
+/*
+ * Get the number of channels set high in the channel bitmask.
+ */
+int ch_count(uint8_t ch)
+{
+	int n = 0;
+	for (int i = 0; i < 8; i++)
+	{
+		if ((ch & (1 << i)) != 0)
+			n++;
+	}
+	return n;
+}
+/*
+ * Record DAQ samples to WAV file for duration d.
+ *
+ * Precondition: already scanning on address 0.
+ *
+ * Tries to read one second's worth of samples. The read times out after 2 seconds.
+ * If we don't have the first second's samples by then, then something is wrong and
+ * we need to handle the issue.
+ */
+static void record(daq_info_t const cfg, config_t const ini, float duration)
+{
+
+	// Determine current time.
+	time_t t;
+       	time(&t);
+    	char timestr[sizeof "1970-01-01T00:00:00Z"];
+    	strftime(timestr, sizeof(timestr), "%FT%TZ", gmtime(&t));
+
+	// Open WAV file for writing.
+	char filename[128];
+	sprintf(filename, "%s-%s.wav", timestr, ini.file_postfix);
+	FILE *fp = fopen(filename, "w");
+	printf("start file \"%s\"\n", filename);
+
+	int rv;
+	uint16_t status;
+	int32_t i = 0;
+	int32_t iterations = ceil(duration);	// One read per second.
+	int32_t actual;
+
+	// Write the header and FMT chunk.
+	write_header(fp, 100);
+	write_fmt(fp, ini.format, ch_count(ini.channels), cfg.sample_rate);
+	uint32_t guess_samples = iterations * cfg.sample_rate;
+	uint32_t guess_bytes;
+	if (ini.format == WAV_FORMAT_IEEE_FLOAT)
+	{
+		write_fact(fp, guess_samples);
+		guess_bytes = guess_samples * 8;
+	}
+	else
+	{
+		guess_bytes = guess_samples * 2;
+	}
+	write_drdc(fp, cfg, timestr); 
+
+	write_data(fp, guess_bytes);
+	int guess_pos = ftell(fp) - 4;
+
+	// Record data.
+	while (run && (i < iterations))
+	{
+		rv = mcc128_a_in_scan_read(cfg.address, &status, cfg.sample_rate, 2.0, buffer, buf_count*sizeof(double), &actual);
+		if (rv != RESULT_SUCCESS)
+		{
+			fprintf(stderr, "read failed: resource unavailable.\n");
+		}
+		if (status != STATUS_RUNNING)
+		{
+			if (status & STATUS_HW_OVERRUN)
+			{
+				fprintf(stderr, "hardware overrun aughghghg\n");
+			}
+			if (status & STATUS_BUFFER_OVERRUN)
+			{
+				fprintf(stderr, "buffer overrun askasdjf\n");
+			}
+		}
+		if (actual < cfg.sample_rate)
+		{
+			fprintf(stderr, "somethign wrong with read\n");
+			exit(actual -1);
+		}
+
+		if (ini.format == WAV_FORMAT_PCM)
+		{
+			// Convert to 16 bit values.
+			int16_t *p = (int16_t*)wbuf;
+			for (int j = 0; j < buf_count; j++)
+			{
+				p[j] = round(buffer[j] - INT16_MAX);
+			}
+			rv = fwrite(wbuf, sizeof(int16_t), cfg.sample_rate, fp);
+		}
+		else if (ini.format == WAV_FORMAT_IEEE_FLOAT)
+		{
+			float *p = (float*)wbuf;
+			for (int j = 0; j < buf_count; j++)
+			{
+				p[j] = buffer[j];
+			}
+			rv = fwrite(wbuf, sizeof(double), cfg.sample_rate, fp);
+		}
+		else
+		{
+			fprintf(stderr, "Invalid recording format\n");
+			exit(1);
+		}
+		printf("recorded %d samples.\n", actual);
+		i++;
+	}
+
+	// Fix any file size issues.
+	printf("close file \"%s\"\n", filename);
+	
+	fclose(fp);
+}
+
+static uint8_t parse_address(char const* value)
+{
+	errno = 0;
+	char *tmp;
+	long result = strtol(value, &tmp, 10);
+	if (errno != 0)
+	{
+		fprintf(stderr, "Error reading address. Must be numeric\n");
+		exit(1);
+	}
+	if ((result < 0) || (result > 7))
+	{
+		fprintf(stderr, "Invalid address: %d. Must be 0-7.\n", result);
+		exit(1);
+	}
+	return result;
 }
 
 static int inih_handler(void *user, char const* section, char const* name, char const* value)
@@ -380,21 +470,27 @@ static int inih_handler(void *user, char const* section, char const* name, char 
 
 	#define MATCH(s, n) strcmp(section, s) == 0 && strcmp(name, n) == 0
 	if (MATCH("mcc128", "address")) {
-		c->address = atoi(value);		
-	} else if (MATCH("mcc128", "channel")) {
-		c->channel = atoi(value);
+		c->address = parse_address(value);
+	} else if (MATCH("mcc128", "channels")) {
+		c->channels = parse_channels(value);
 	} else if (MATCH("mcc128", "range")) {
 		c->range = parse_range(value);
 	} else if (MATCH("mcc128", "mode")) {
 		c->mode = parse_mode(value);
 	} else if (MATCH("mcc128", "sample_rate")) {
 		c->sample_rate = atoi(value);
-	} else if (MATCH("mcc128", "format")) {
+	} else if (MATCH("wav", "format")) {
 		c->format = parse_format(value);
-	} else if (MATCH("mcc128", "file_duration")) {
+	} else if (MATCH("logger", "file_postfix")) {
+		if (strlen(value) > 31) {
+			fprintf(stderr, "file_postfix too long\n");
+			exit(1);
+		}
+		strcpy(c->file_postfix, value);
+	} else if (MATCH("logger", "file_duration")) {
 		c->file_duration = atoi(value);
 	} else {
-		fprintf(stderr, "Unrecognized entry: \"%s:%s\"\n", section, name);
+		fprintf(stderr, "WARNING: unrecognized entry: \"%s:%s\"\n", section, name);
 	}
 }
 
@@ -410,8 +506,15 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Error reading conf\n");
 		return rv;
 	}
-
-	size_t buf_size = 4096;
+	if ((ch_count(ini.channels) * ini.sample_rate) > 100000)
+	{
+		int nch = ch_count(ini.channels);
+		int sr = ini.sample_rate;
+		fprintf(stderr, "Requested more than 100kS/s.\n");
+		fprintf(stderr, "\t%d channels x %d S/s = %d\n", nch, sr, nch*sr);
+		fprintf(stderr, "\tCannot proceed.\n");
+		return 1;
+	}
 
 	signal(SIGINT, handle_sigint);
 	signal(SIGTERM, handle_sigint);
@@ -431,12 +534,12 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "\trequested: %f\n", ini.sample_rate);
 		ini.sample_rate = actual_rate;
 	}
-	printf("actual %f\nini %d\n", actual_rate, ini.sample_rate);
+	buf_count = actual_rate * ch_count(ini.channels);
 
 	rv = mcc128_open(ini.address);
 	if (rv != RESULT_SUCCESS)
 	{
-		fprintf(stderr, "Can't connect to HAT 0\n");
+		fprintf(stderr, "Can't connect to HAT %d\n", ini.address);
 		return rv;
 	}
 
@@ -454,17 +557,28 @@ int main(int argc, char *argv[])
 	      	return rv;	
 	}
 
-	buffer = malloc(actual_rate * sizeof(double));
-	tmp = malloc(actual_rate * sizeof(uint16_t));
+	buffer = malloc(buf_count * sizeof(double));
+	if (ini.format == WAV_FORMAT_PCM)
+	{
+		wbuf = malloc(buf_count * sizeof(uint16_t));
+	}
+	else
+	{
+		wbuf = malloc(buf_count * sizeof(float));
+	}
 
-	rv = mcc128_a_in_scan_start(ini.address, 1 << ini.channel, buf_size, actual_rate, OPTS_CONTINUOUS | OPTS_NOSCALEDATA);
+	rv = mcc128_a_in_scan_start(ini.address, ini.channels, actual_rate, actual_rate, OPTS_CONTINUOUS);
 	if (rv != RESULT_SUCCESS)
 	{
-		fprintf(stderr, "Couldn't start scan.\n");
+		fprintf(stderr, "Couldn't start scan. %d\n", rv);
+		if (rv == RESULT_RESOURCE_UNAVAIL) 
+			fprintf(stderr, "\tresource unavailable\n");
+		if (rv == RESULT_BUSY) 
+			fprintf(stderr, "\tresource busy\n");
 		return rv;
 	}
 	
-	daq_info_t cfg = get_configuration(ini.address, ini.channel, actual_rate);
+	daq_info_t cfg = get_configuration(ini.address, ini.channels, actual_rate);
 	print_configuration(cfg);
 
 	while (run)
@@ -488,3 +602,4 @@ int main(int argc, char *argv[])
 	}
 	return 0;
 }
+
