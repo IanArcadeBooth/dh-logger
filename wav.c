@@ -12,18 +12,21 @@ int write_header(FILE *fp, uint32_t size)
 int write_fmt(FILE *fp, wav_format fmt, uint16_t nch, uint32_t rate)
 {
 	uint32_t size;
-	uint32_t bps = 2*rate; // only for 16 bit uncompressed.	
-	uint16_t block_align = 2;
-
+	uint16_t block_align;
+	uint32_t bytes_per_sec;
 	uint16_t bit_depth;
       	if (fmt == WAV_FORMAT_PCM)
 	{
 		size = 16;
+		block_align = 2 * nch;
+		bytes_per_sec = 2 * nch * rate;
 		bit_depth = 16;	
 	}
 	else if (fmt == WAV_FORMAT_IEEE_FLOAT)
 	{
 		size = 18;
+		block_align = 4 * nch;
+		bytes_per_sec = 4 * nch * rate;
 		bit_depth = 32;
 	}
 	
@@ -32,7 +35,7 @@ int write_fmt(FILE *fp, wav_format fmt, uint16_t nch, uint32_t rate)
 	fwrite(&fmt, 2, 1, fp);
 	fwrite(&nch, 2, 1, fp);
 	fwrite(&rate, 4, 1, fp);
-	fwrite(&bps, 4, 1, fp);
+	fwrite(&bytes_per_sec, 4, 1, fp);
 	fwrite(&block_align, 2, 1, fp);//TBD
 	fwrite(&bit_depth, 2, 1, fp);
 	if (fmt == WAV_FORMAT_IEEE_FLOAT)

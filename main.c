@@ -347,9 +347,8 @@ int ch_count(uint8_t ch)
  * If we don't have the first second's samples by then, then something is wrong and
  * we need to handle the issue.
  */
-static void record(daq_info_t const cfg, config_t const ini, float duration)
+static void record(daq_info_t const cfg, config_t const ini)
 {
-
 	// Determine current time.
 	time_t t;
        	time(&t);
@@ -365,7 +364,7 @@ static void record(daq_info_t const cfg, config_t const ini, float duration)
 	int rv;
 	uint16_t status;
 	int32_t i = 0;
-	int32_t iterations = ceil(duration);	// One read per second.
+	int32_t iterations = ceil(ini.file_duration);
 	int32_t actual;
 
 	// Write the header and FMT chunk.
@@ -387,6 +386,8 @@ static void record(daq_info_t const cfg, config_t const ini, float duration)
 	write_data(fp, guess_bytes);
 	int guess_pos = ftell(fp) - 4;
 
+	int nch = ch_count(cfg.channels);
+
 	// Record data.
 	while (run && (i < iterations))
 	{
@@ -395,7 +396,7 @@ static void record(daq_info_t const cfg, config_t const ini, float duration)
 			mcc128_blink_led(cfg.address, 3);
 		}
 
-		rv = mcc128_a_in_scan_read(cfg.address, &status, cfg.sample_rate, 2.0, buffer, buf_count*sizeof(double), &actual);
+		rv = mcc128_a_in_scan_read(cfg.address, &status, cfg.sample_rate, 2.0, buffer, buf_count, &actual);
 		if (rv != RESULT_SUCCESS)
 		{
 			fprintf(stderr, "read failed: resource unavailable.\n");
@@ -411,9 +412,11 @@ static void record(daq_info_t const cfg, config_t const ini, float duration)
 				fprintf(stderr, "buffer overrun askasdjf\n");
 			}
 		}
-		if (actual < cfg.sample_rate)
+		if (actual != cfg.sample_rate)
 		{
-			fprintf(stderr, "somethign wrong with read\n");
+			fprintf(stderr, "something wrong with read\n");
+			printf("actual %d\n", actual);
+			printf("sample_rate: %d\n", buf_count);
 			exit(actual -1);
 		}
 
@@ -434,7 +437,7 @@ static void record(daq_info_t const cfg, config_t const ini, float duration)
 			{
 				p[j] = buffer[j];
 			}
-			rv = fwrite(wbuf, sizeof(double), cfg.sample_rate, fp);
+			rv = fwrite(wbuf, sizeof(float), cfg.sample_rate, fp);
 		}
 		else
 		{
@@ -587,7 +590,7 @@ int main(int argc, char *argv[])
 
 	while (run)
 	{
-		record(cfg, ini, 60.0);
+		record(cfg, ini);
 	}
 
 	printf("stopping the service\n");
