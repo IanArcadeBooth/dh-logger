@@ -395,26 +395,10 @@ static void record(daq_info_t const cfg, config_t const ini)
 			exit(actual -1);
 		}
 
-		double power[8];
-		power[0] = 0.0;
-		power[1] = 0.0;
-		power[2] = 0.0;
-		power[3] = 0.0;
-		power[4] = 0.0;
-		power[5] = 0.0;
-		power[6] = 0.0;
-		power[7] = 0.0;
-
 		for (int j = 0; j < buf_count; j++)
 		{
 			wbuf[j] = buffer[j] / (float)cfg.range;
-			power[j % nch] += buffer[j]*buffer[j];
 		}
-		for (int j = 0; j < nch; j++)
-		{
-			printf("ch %d: %f\n", j, power[j]);
-		}
-		printf("\n");
 		rv = fwrite(wbuf, sizeof(float), cfg.sample_rate * nch, fp);
 		bytes_written += rv * sizeof(float);
 		i++;
