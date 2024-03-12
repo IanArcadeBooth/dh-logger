@@ -2,9 +2,9 @@
 Description=DaqHat logger for NTST
 
 [Service]
-WorkingDirectory=/home/tiuser/ntst_logger
+WorkingDirectory=/home/tiuser/dh-logger
 Restart=on-failure
-ExecStart=/home/tiuser/ntst_logger/dh_logger
+ExecStart=/home/tiuser/dh-logger/dh_logger
 StandardError=journal
 StandardOutput=journal
 StandardInput=null
