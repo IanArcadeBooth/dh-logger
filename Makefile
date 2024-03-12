@@ -1,8 +1,6 @@
 .PHONY: all install clean
 CC=/usr/bin/gcc
 
-CFLAGS=-O0 -g -fsanitize=address,undefined
-
 LFLAGS=-ldaqhats
 
 all: dh_logger dh_stop_scan dh_check_scan check_chunks
