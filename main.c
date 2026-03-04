@@ -5,6 +5,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <gpiod.h>
 #include <gps.h>
 #include <math.h>
 #include <signal.h>
@@ -17,6 +18,11 @@
 
 #include <ini.h>
 
+#define SW1_GPIO 17 // pair 1-5
+#define SW2_GPIO 27 // pair 2-6
+#define SW3_GPIO 22 // pair 3-7
+#define SW4_GPIO 23 // pair 4-8
+
 static int run = 1;
 
 uint32_t buf_count = 0;
@@ -25,6 +31,13 @@ float *wbuf;    // Local store for 32 bit float samples
 
 // TODO install sigint handler to exit loop and close file gracefully.
 void handle_sigint(int signal) { run = 0; }
+
+typedef struct switch_state_s {
+  int pair1;
+  int pair2;
+  int pair3;
+  int pair4;
+} switch_state_t;
 
 typedef struct config_s {
   uint8_t address;
@@ -231,8 +244,7 @@ static gps_fix_t get_gps_fix(int timeout_ms) {
   return out;
 }
 
-static void serialize_configuration(FILE *fp, daq_info_t const cfg,
-                                    char const *timestr, gps_fix_t const *gps) {
+static void serialize_configuration(FILE *fp, daq_info_t const cfg, char const* timestr, switch_state_t sw) {
   fprintf(fp, "<?xml version='1.0'?>\n");
   fprintf(fp, "<dataset>");
 
@@ -267,7 +279,7 @@ static void serialize_configuration(FILE *fp, daq_info_t const cfg,
   fprintf(fp, "</product>");
   fprintf(fp, "</hardware>");
   fprintf(fp, "<time>%s</time>", timestr);
-    if (gps && gps->have_fix) {
+  if (gps && gps->have_fix) {
     fprintf(fp, "<location>");
     fprintf(fp, "<lat>%.7f</lat>", gps->lat);
     fprintf(fp, "<lon>%.7f</lon>", gps->lon);
@@ -281,6 +293,13 @@ static void serialize_configuration(FILE *fp, daq_info_t const cfg,
   } else {
     fprintf(fp, "<location status='NO_FIX' />");
   }
+  // Switch-based input pairing metadata (external diff->SE circuit)
+fprintf(fp, "<input_pairs>");
+fprintf(fp, "<pair id='1' a='1' b='5' type='%s'/>", sw.pair1 ? "DIFF_CONVERTED" : "SE");
+fprintf(fp, "<pair id='2' a='2' b='6' type='%s'/>", sw.pair2 ? "DIFF_CONVERTED" : "SE");
+fprintf(fp, "<pair id='3' a='3' b='7' type='%s'/>", sw.pair3 ? "DIFF_CONVERTED" : "SE");
+fprintf(fp, "<pair id='4' a='4' b='8' type='%s'/>", sw.pair4 ? "DIFF_CONVERTED" : "SE");
+fprintf(fp, "</input_pairs>");
   fprintf(fp, "</dataset>");
 }
 
@@ -290,7 +309,7 @@ static void serialize_configuration(FILE *fp, daq_info_t const cfg,
  * This custom chunk stores information about the recording device
  * that was used to create the WAV file.
  */
-static int write_drdc(FILE *fp, daq_info_t const cfg, char const *timestr) {
+static int write_drdc(FILE *fp, daq_info_t const cfg, char const* timestr, switch_state_t sw) {
   uint8_t o = 0;
   uint32_t chunk_sz = 0;
 
@@ -386,6 +405,33 @@ int ch_count(uint8_t ch) {
       n++;
   }
   return n;
+}
+
+// This function reads the state of the gpio pins (switches)
+static int read_gpio(int gpio) {
+  struct gpiod_chip *chip;
+  struct gpiod_line *line;
+  int value;
+
+  chip = gpiod_chip_open_by_name("gpiochip0");
+  if (!chip)
+    return -1;
+
+  line = gpiod_chip_get_line(chip, gpio);
+  if (!line) {
+    gpiod_chip_close(chip);
+    return -1;
+  }
+
+  if (gpiod_line_request_input(line, "dh_logger") < 0) {
+    gpiod_chip_close(chip);
+    return -1;
+  }
+
+  value = gpiod_line_get_value(line);
+
+  gpiod_chip_close(chip);
+  return value;
 }
 /*
  * Record DAQ samples to WAV file for duration d.
@@ -535,6 +581,19 @@ int main(int argc, char *argv[]) {
 
   signal(SIGINT, handle_sigint);
   signal(SIGTERM, handle_sigint);
+
+  switch_state_t sw;
+
+  sw.pair1 = read_gpio(SW1_GPIO);
+  sw.pair2 = read_gpio(SW2_GPIO);
+  sw.pair3 = read_gpio(SW3_GPIO);
+  sw.pair4 = read_gpio(SW4_GPIO);
+
+  printf("Switch states:\n");
+  printf("  Pair 1 (1-5): %s\n", sw.pair1 ? "DIFF" : "SE");
+  printf("  Pair 2 (2-6): %s\n", sw.pair2 ? "DIFF" : "SE");
+  printf("  Pair 3 (3-7): %s\n", sw.pair3 ? "DIFF" : "SE");
+  printf("  Pair 4 (4-8): %s\n", sw.pair4 ? "DIFF" : "SE");
 
   // Convert requested data rate to actual data rate.
   double actual_rate;

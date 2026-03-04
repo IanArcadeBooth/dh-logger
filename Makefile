@@ -15,7 +15,7 @@ all: dh_logger dh_stop_scan dh_check_scan check_chunks
 	$(CC) $(CFLAGS) -c $<
 
 dh_logger: main.c wav.o /usr/include/ini.h
-	$(CC) $(CFLAGS) $< wav.o -o $@ $(LFLAGS) -lm -linih -lgps
+	$(CC) $(CFLAGS) $< wav.o -o $@ $(LFLAGS) -lm -linih -lgps -lgpiod
 
 dh_stop_scan: stop_scan.c
 	$(CC) $< -o $@ $(LFLAGS)
