@@ -244,7 +244,11 @@ static gps_fix_t get_gps_fix(int timeout_ms) {
   return out;
 }
 
-static void serialize_configuration(FILE *fp, daq_info_t const cfg, char const* timestr, switch_state_t sw) {
+static void serialize_configuration(FILE *fp,
+                                   daq_info_t const cfg,
+                                   char const *timestr,
+                                   gps_fix_t const *gps,
+                                   switch_state_t sw) {
   fprintf(fp, "<?xml version='1.0'?>\n");
   fprintf(fp, "<dataset>");
 
@@ -303,6 +307,8 @@ fprintf(fp, "</input_pairs>");
   fprintf(fp, "</dataset>");
 }
 
+static void print_system_status(daq_info_t cfg, gps_fix_t const *gps, switch_state_t sw);
+
 /*
  * Write the DRDC logger metadata.
  *
@@ -320,7 +326,8 @@ static int write_drdc(FILE *fp, daq_info_t const cfg, char const* timestr, switc
 
   // Write the configuration data.
   gps_fix_t fix = get_gps_fix(3000); // wait up to 3 seconds for a fix
-  serialize_configuration(fp, cfg, timestr, &fix);
+  print_system_status(cfg, &fix, sw);
+  serialize_configuration(fp, cfg, timestr, &fix, sw);
 
   // Get the XML size.
   size_t lpos = ftell(fp);
@@ -362,6 +369,7 @@ static int parse_mode(char const *value) {
     fprintf(stderr, "invalid mode: \"%s\"\n", value);
     exit(1);
   }
+  return 0;
 }
 
 /*
@@ -433,6 +441,39 @@ static int read_gpio(int gpio) {
   gpiod_chip_close(chip);
   return value;
 }
+
+static void print_system_status(daq_info_t cfg, gps_fix_t const *gps, switch_state_t sw)
+{
+    printf("\n===== dh-logger startup status =====\n");
+
+    printf("DAQ device:\n");
+    printf("  Model: MCC128\n");
+    printf("  Address: %d\n", cfg.address);
+
+    printf("\nAcquisition settings:\n");
+    printf("  Channels: %d\n", ch_count(cfg.channels));
+    printf("  Sample rate: %.2f Hz\n", cfg.sample_rate);
+    printf("  Range: +/- 10V\n");
+
+    if (gps && gps->have_fix) {
+        printf("\nGPS:\n");
+        printf("  Fix mode: %d\n", gps->mode);
+        printf("  Latitude: %.6f\n", gps->lat);
+        printf("  Longitude: %.6f\n", gps->lon);
+        printf("  Altitude: %.2f m\n", gps->alt);
+    } else {
+        printf("\nGPS: no fix\n");
+    }
+
+    printf("\nInput pair configuration:\n");
+    printf("  Pair 1 (1-5): %s\n", sw.pair1 ? "DIFF_CONVERTED" : "SE");
+    printf("  Pair 2 (2-6): %s\n", sw.pair2 ? "DIFF_CONVERTED" : "SE");
+    printf("  Pair 3 (3-7): %s\n", sw.pair3 ? "DIFF_CONVERTED" : "SE");
+    printf("  Pair 4 (4-8): %s\n", sw.pair4 ? "DIFF_CONVERTED" : "SE");
+
+    printf("\nLogger ready.\n");
+    printf("====================================\n\n");
+}
 /*
  * Record DAQ samples to WAV file for duration d.
  *
@@ -442,7 +483,7 @@ static int read_gpio(int gpio) {
  * seconds. If we don't have the first second's samples by then, then something
  * is wrong and we need to handle the issue.
  */
-static void record(daq_info_t const cfg, config_t const ini) {
+static void record(daq_info_t const cfg, config_t const ini, switch_state_t sw) {
   // Determine current time.
   time_t t;
   time(&t);
@@ -469,7 +510,7 @@ static void record(daq_info_t const cfg, config_t const ini) {
   uint32_t guess_samples = iterations * cfg.sample_rate * nch;
   uint32_t guess_bytes = guess_samples * sizeof(float);
   write_fact(fp, guess_samples);
-  write_drdc(fp, cfg, timestr);
+  write_drdc(fp, cfg, timestr, sw);
 
   write_data(fp, guess_bytes);
   int guess_pos = ftell(fp) - sizeof(float);
@@ -646,7 +687,7 @@ int main(int argc, char *argv[]) {
   print_configuration(cfg);
 
   while (run) {
-    record(cfg, ini);
+    record(cfg, ini, sw);
   }
 
   printf("stopping the service\n");
