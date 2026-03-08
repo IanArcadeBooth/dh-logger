@@ -66,9 +66,6 @@ typedef struct daq_hat_s {
   char calibration_date[11];
 } daq_info_t;
 
-static void write_csv_log(const char *filename, const char *timestr,
-                          double peak, gps_fix_t const *gps,
-                          switch_state_t sw)
 
 /*
  * Must open connection to the DAQ before calling this.
@@ -202,6 +199,10 @@ typedef struct {
   double alt;
 } gps_fix_t;
 
+static void write_csv_log(const char *filename, const char *timestr,
+                          double peak, gps_fix_t const *gps,
+                          switch_state_t sw);
+
 static long long now_ms(void) {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -215,6 +216,8 @@ static gps_fix_t get_gps_fix(int timeout_ms) {
   if (gps_open("localhost", "2947", &gps) != 0) {
     return out;
   }
+  
+  
 
   gps_stream(&gps, WATCH_ENABLE | WATCH_JSON, NULL);
 
@@ -577,7 +580,9 @@ double peak_volts = 0.0;
   printf("peak wav magnitude: %f\n", peak_wav);
 printf("peak volts: %f\n", peak_volts);
 
-write_csv_log(filename, timestr, peak_wav, sw);
+gps_fix_t fix = get_gps_fix(3000);
+write_csv_log(filename, timestr, peak_wav, &fix, sw);
+
 
 printf("close file \"%s\"\n", filename);
 
