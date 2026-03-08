@@ -515,6 +515,7 @@ static void record(daq_info_t const cfg, config_t const ini, switch_state_t sw) 
   write_data(fp, guess_bytes);
   int guess_pos = ftell(fp) - sizeof(float);
   uint32_t bytes_written = 0;
+  double peak = 0.0;
 
   // Record data.
   while (run && (i < iterations)) {
@@ -539,6 +540,10 @@ static void record(daq_info_t const cfg, config_t const ini, switch_state_t sw) 
     }
 
     for (int j = 0; j < buf_count; j++) {
+		double mag = fabs(buffer[j]);
+
+    if (mag > peak)
+        peak = mag;
       wbuf[j] = buffer[j] / (float)cfg.range;
     }
     rv = fwrite(wbuf, sizeof(float), cfg.sample_rate * nch, fp);
@@ -554,6 +559,7 @@ static void record(daq_info_t const cfg, config_t const ini, switch_state_t sw) 
   }
 
   // Fix any file size issues.
+  printf("peak magnitude: %f\n", peak);
   printf("close file \"%s\"\n", filename);
 
   fclose(fp);
