@@ -244,11 +244,9 @@ static gps_fix_t get_gps_fix(int timeout_ms) {
   return out;
 }
 
-static void serialize_configuration(FILE *fp,
-                                   daq_info_t const cfg,
-                                   char const *timestr,
-                                   gps_fix_t const *gps,
-                                   switch_state_t sw) {
+static void serialize_configuration(FILE *fp, daq_info_t const cfg,
+                                    char const *timestr, gps_fix_t const *gps,
+                                    switch_state_t sw) {
   fprintf(fp, "<?xml version='1.0'?>\n");
   fprintf(fp, "<dataset>");
 
@@ -298,16 +296,21 @@ static void serialize_configuration(FILE *fp,
     fprintf(fp, "<location status='NO_FIX' />");
   }
   // Switch-based input pairing metadata (external diff->SE circuit)
-fprintf(fp, "<input_pairs>");
-fprintf(fp, "<pair id='1' a='1' b='5' type='%s'/>", sw.pair1 ? "DIFF_CONVERTED" : "SE");
-fprintf(fp, "<pair id='2' a='2' b='6' type='%s'/>", sw.pair2 ? "DIFF_CONVERTED" : "SE");
-fprintf(fp, "<pair id='3' a='3' b='7' type='%s'/>", sw.pair3 ? "DIFF_CONVERTED" : "SE");
-fprintf(fp, "<pair id='4' a='4' b='8' type='%s'/>", sw.pair4 ? "DIFF_CONVERTED" : "SE");
-fprintf(fp, "</input_pairs>");
+  fprintf(fp, "<input_pairs>");
+  fprintf(fp, "<pair id='1' a='1' b='5' type='%s'/>",
+          sw.pair1 ? "DIFF_CONVERTED" : "SE");
+  fprintf(fp, "<pair id='2' a='2' b='6' type='%s'/>",
+          sw.pair2 ? "DIFF_CONVERTED" : "SE");
+  fprintf(fp, "<pair id='3' a='3' b='7' type='%s'/>",
+          sw.pair3 ? "DIFF_CONVERTED" : "SE");
+  fprintf(fp, "<pair id='4' a='4' b='8' type='%s'/>",
+          sw.pair4 ? "DIFF_CONVERTED" : "SE");
+  fprintf(fp, "</input_pairs>");
   fprintf(fp, "</dataset>");
 }
 
-static void print_system_status(daq_info_t cfg, gps_fix_t const *gps, switch_state_t sw);
+static void print_system_status(daq_info_t cfg, gps_fix_t const *gps,
+                                switch_state_t sw);
 
 /*
  * Write the DRDC logger metadata.
@@ -315,7 +318,8 @@ static void print_system_status(daq_info_t cfg, gps_fix_t const *gps, switch_sta
  * This custom chunk stores information about the recording device
  * that was used to create the WAV file.
  */
-static int write_drdc(FILE *fp, daq_info_t const cfg, char const* timestr, switch_state_t sw) {
+static int write_drdc(FILE *fp, daq_info_t const cfg, char const *timestr,
+                      switch_state_t sw) {
   uint8_t o = 0;
   uint32_t chunk_sz = 0;
 
@@ -442,37 +446,37 @@ static int read_gpio(int gpio) {
   return value;
 }
 
-static void print_system_status(daq_info_t cfg, gps_fix_t const *gps, switch_state_t sw)
-{
-    printf("\n===== dh-logger startup status =====\n");
+static void print_system_status(daq_info_t cfg, gps_fix_t const *gps,
+                                switch_state_t sw) {
+  printf("\n===== dh-logger startup status =====\n");
 
-    printf("DAQ device:\n");
-    printf("  Model: MCC128\n");
-    printf("  Address: %d\n", cfg.address);
+  printf("DAQ device:\n");
+  printf("  Model: MCC128\n");
+  printf("  Address: %d\n", cfg.address);
 
-    printf("\nAcquisition settings:\n");
-    printf("  Channels: %d\n", ch_count(cfg.channels));
-    printf("  Sample rate: %.2f Hz\n", cfg.sample_rate);
-    printf("  Range: +/- 10V\n");
+  printf("\nAcquisition settings:\n");
+  printf("  Channels: %d\n", ch_count(cfg.channels));
+  printf("  Sample rate: %.2f Hz\n", cfg.sample_rate);
+  printf("  Range: +/- 10V\n");
 
-    if (gps && gps->have_fix) {
-        printf("\nGPS:\n");
-        printf("  Fix mode: %d\n", gps->mode);
-        printf("  Latitude: %.6f\n", gps->lat);
-        printf("  Longitude: %.6f\n", gps->lon);
-        printf("  Altitude: %.2f m\n", gps->alt);
-    } else {
-        printf("\nGPS: no fix\n");
-    }
+  if (gps && gps->have_fix) {
+    printf("\nGPS:\n");
+    printf("  Fix mode: %d\n", gps->mode);
+    printf("  Latitude: %.6f\n", gps->lat);
+    printf("  Longitude: %.6f\n", gps->lon);
+    printf("  Altitude: %.2f m\n", gps->alt);
+  } else {
+    printf("\nGPS: no fix\n");
+  }
 
-    printf("\nInput pair configuration:\n");
-    printf("  Pair 1 (1-5): %s\n", sw.pair1 ? "DIFF_CONVERTED" : "SE");
-    printf("  Pair 2 (2-6): %s\n", sw.pair2 ? "DIFF_CONVERTED" : "SE");
-    printf("  Pair 3 (3-7): %s\n", sw.pair3 ? "DIFF_CONVERTED" : "SE");
-    printf("  Pair 4 (4-8): %s\n", sw.pair4 ? "DIFF_CONVERTED" : "SE");
+  printf("\nInput pair configuration:\n");
+  printf("  Pair 1 (1-5): %s\n", sw.pair1 ? "DIFF_CONVERTED" : "SE");
+  printf("  Pair 2 (2-6): %s\n", sw.pair2 ? "DIFF_CONVERTED" : "SE");
+  printf("  Pair 3 (3-7): %s\n", sw.pair3 ? "DIFF_CONVERTED" : "SE");
+  printf("  Pair 4 (4-8): %s\n", sw.pair4 ? "DIFF_CONVERTED" : "SE");
 
-    printf("\nLogger ready.\n");
-    printf("====================================\n\n");
+  printf("\nLogger ready.\n");
+  printf("====================================\n\n");
 }
 /*
  * Record DAQ samples to WAV file for duration d.
@@ -483,7 +487,8 @@ static void print_system_status(daq_info_t cfg, gps_fix_t const *gps, switch_sta
  * seconds. If we don't have the first second's samples by then, then something
  * is wrong and we need to handle the issue.
  */
-static void record(daq_info_t const cfg, config_t const ini, switch_state_t sw) {
+static void record(daq_info_t const cfg, config_t const ini,
+                   switch_state_t sw) {
   // Determine current time.
   time_t t;
   time(&t);
@@ -540,9 +545,9 @@ static void record(daq_info_t const cfg, config_t const ini, switch_state_t sw) 
     }
 
     for (int j = 0; j < buf_count; j++) {
-		double mag = fabs(buffer[j]);
+      double mag = fabs(buffer[j]);
 
-    if (mag > peak)
+      if (mag > peak)
         peak = mag;
       wbuf[j] = buffer[j] / (float)cfg.range;
     }
