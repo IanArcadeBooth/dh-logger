@@ -66,6 +66,10 @@ typedef struct daq_hat_s {
   char calibration_date[11];
 } daq_info_t;
 
+static void write_csv_log(const char *filename, const char *timestr,
+                          double peak, gps_fix_t const *gps,
+                          switch_state_t sw)
+
 /*
  * Must open connection to the DAQ before calling this.
  */
@@ -520,7 +524,8 @@ static void record(daq_info_t const cfg, config_t const ini,
   write_data(fp, guess_bytes);
   int guess_pos = ftell(fp) - sizeof(float);
   uint32_t bytes_written = 0;
-  double peak = 0.0;
+  double peak_wav = 0.0;
+double peak_volts = 0.0;
 
   // Record data.
   while (run && (i < iterations)) {
@@ -545,12 +550,17 @@ static void record(daq_info_t const cfg, config_t const ini,
     }
 
     for (int j = 0; j < buf_count; j++) {
-      double mag = fabs(buffer[j]);
+    double volts = fabs(buffer[j]);
 
-      if (mag > peak)
-        peak = mag;
-      wbuf[j] = buffer[j] / (float)cfg.range;
-    }
+    if (volts > peak_volts)
+        peak_volts = volts;
+
+    wbuf[j] = buffer[j] / (float)cfg.range;
+
+    double mag = fabs(wbuf[j]);
+    if (mag > peak_wav)
+        peak_wav = mag;
+}
     rv = fwrite(wbuf, sizeof(float), cfg.sample_rate * nch, fp);
     bytes_written += rv * sizeof(float);
     i++;
@@ -564,10 +574,14 @@ static void record(daq_info_t const cfg, config_t const ini,
   }
 
   // Fix any file size issues.
-  printf("peak magnitude: %f\n", peak);
-  printf("close file \"%s\"\n", filename);
+  printf("peak wav magnitude: %f\n", peak_wav);
+printf("peak volts: %f\n", peak_volts);
 
-  fclose(fp);
+write_csv_log(filename, timestr, peak_wav, sw);
+
+printf("close file \"%s\"\n", filename);
+
+fclose(fp);
 }
 
 static uint8_t parse_address(char const *value) {
@@ -611,6 +625,61 @@ static int inih_handler(void *user, char const *section, char const *name,
   } else {
     fprintf(stderr, "WARNING: unrecognized entry: \"%s:%s\"\n", section, name);
   }
+}
+
+static void write_csv_log(const char *filename, const char *timestr,
+                          double peak, gps_fix_t const *gps,
+                          switch_state_t sw) {
+  FILE *fp;
+  int new_file = 0;
+
+  fp = fopen("recordings_log.csv", "r");
+  if (fp == NULL) {
+    new_file = 1;
+  } else {
+    fclose(fp);
+  }
+
+  fp = fopen("recordings_log.csv", "a");
+  if (fp == NULL) {
+    perror("recordings_log.csv");
+    return;
+  }
+
+  if (new_file) {
+    fprintf(fp, "timestamp,filename,peak_norm,fix_mode,lat,lon,alt_m,pair1,pair2,pair3,pair4\n");
+  }
+
+  if (gps && gps->have_fix) {
+  fprintf(fp, "%s,%s,%f,%d,%f,%f,%0.2f,%s,%s,%s,%s\n",
+          timestr,
+          filename,
+          peak,
+          gps->mode,
+          gps->lat,
+          gps->lon,
+          gps->alt,
+          sw.pair1 ? "DIFF" : "SE",
+          sw.pair2 ? "DIFF" : "SE",
+          sw.pair3 ? "DIFF" : "SE",
+          sw.pair4 ? "DIFF" : "SE");
+} else {
+  fprintf(fp, "%s,%s,%f,%d,%s,%s,%s,%s,%s,%s,%s\n",
+          timestr,
+          filename,
+          peak,
+          0,
+          "",
+          "",
+          "",
+          sw.pair1 ? "DIFF" : "SE",
+          sw.pair2 ? "DIFF" : "SE",
+          sw.pair3 ? "DIFF" : "SE",
+          sw.pair4 ? "DIFF" : "SE");
+}
+
+  fflush(fp);
+  fclose(fp);
 }
 
 int main(int argc, char *argv[]) {
