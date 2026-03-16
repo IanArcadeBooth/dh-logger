@@ -1,0 +1,23 @@
+[Unit]
+Description=DaqHat logger for NTST
+
+[Service]
+[Service]
+WorkingDirectory=/home/tiuser/dh-logger
+
+ExecStart=/home/tiuser/dh-logger/dh_logger
+
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+
+StandardError=journal
+StandardOutput=journal
+StandardInput=null
+
+TimeoutStopSec=10
+KillMode=mixed
+
+
+[Install]
+WantedBy=default.target

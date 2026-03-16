@@ -1,0 +1,12 @@
+[Unit]
+Description=Status button and LED monitor for dh-logger
+After=default.target
+
+[Service]
+WorkingDirectory=/home/tiuser/dh-logger
+ExecStart=/home/tiuser/dh-logger/status_button_monitor.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
